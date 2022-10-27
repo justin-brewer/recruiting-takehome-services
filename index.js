@@ -22,23 +22,41 @@ app.get('/', (req, res) => {
     res.send(`Get request!\n${JSON.stringify(req.body)}\n${JSON.stringify(loadHistory)}`);
 })
 
-app.post('/api/robots/closest', async (req, res) =>  {
+app.post('/api/robots/closest', (req, res) =>  {
   let load = new Load(req.body.loadId, req.body.x, req.body.y);
-  const robots = await getRobots();
-  console.log(`robots: ${JSON.stringify(robots)}`);
-//  robots.forEach((val, index) => {
-//      const dist = Math.sqrt(
-//          Math.pow((load.x-val.x),2) + Math.pow((load.y-val.y), 2));
-//      console.log(`robotId: ${val.robotId}`);
-//      console.log(`distanceToGoal: ${dist}`);
-//      console.log(`batteryLevel: ${val.batteryLevel}`);
-//  });
+  let robots;
+  let url = robo_main;
+    https.get(url, res => {
+        let rawData = '';
+        res.on('data', chunk => {
+            rawData += chunk;
+        })
+        res.on('end', () => {
+            const parsedData = JSON.parse(rawData);
+            console.log(`getRequest.res.on url: ${url}`);
+            robots = parsedData;
+//            console.log(`getRequest.res.on.result: ${JSON.stringify(result)}`);
+        });
+    });
+//  const robots = getRobots();
+//  console.log(`robots: ${JSON.stringify(robots)}`);
+  let result = [];
+  robots.forEach((val, index) => {
+      const dist = Math.sqrt(
+          Math.pow((load.x-val.x),2) + Math.pow((load.y-val.y), 2));
+      console.log(`robotId: ${val.robotId}`);
+      console.log(`distanceToGoal: ${dist}`);
+      console.log(`batteryLevel: ${val.batteryLevel}`);
+      result.push({"robotId": val.robotId, "distanceToGoal": dist, "batteryLevel": val.batteryLevel});
+
+  });
 //  console.log(`loadId: ${req.body.loadId}`);
 //  console.log(`x: ${req.body.x}`);
 //  console.log(`y: ${req.body.y}`);
 //  console.log();
   loadHistory.push(load);
-  res.send(`posted: ${JSON.stringify(req.body)}`);
+  console.log(`result: ${result}`);
+  res.send(`posted: ${JSON.stringify(result)}`);
 })
 
 async function getRobots() {
