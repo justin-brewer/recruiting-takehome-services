@@ -9,7 +9,11 @@ app.use(express.urlencoded({ extended: true }));
 const robo_main = 'https://60c8ed887dafc90017ffbd56.mockapi.io/robots';
 const robo_mirr = 'https://svtrobotics.free.beeceptor.com/robots';
 var loadHistory = [];
+const key_file = './certs/robot-api-key.pem';
+const cert_file = './certs/robot-api-cert.pem';
 const options = {
+  key: fs.readFileSync(key_file),
+  cert: fs.readFileSync(cert_file)
 };
 
 http.createServer(app).listen(5000)
@@ -25,7 +29,7 @@ app.get('/api/robots/closest', (req, result) => {
         })
         res.on('end', () => {
             const robots = JSON.parse(rawData);
-            result.send(`Robots: ${JSON.stringify(robots)}`);
+            result.send(`${JSON.stringify(robots)}`);
         });
     });
   } catch {
@@ -38,7 +42,7 @@ app.get('/api/robots/closest', (req, result) => {
             })
             res.on('end', () => {
                 const robots = JSON.parse(rawData);
-                result.send(`Robots: ${JSON.stringify(robots)}`);
+                result.send(`${JSON.stringify(robots)}`);
             });
         });
     } catch {
@@ -49,6 +53,10 @@ app.get('/api/robots/closest', (req, result) => {
 
 app.post('/api/robots/closest', (req, result) =>  {
   let load = new Load(req.body.loadId, req.body.x, req.body.y);
+  // These try-catch blocks look messy, but were necessary
+  // to to catch if the GET fails to receive a response
+  // or if the response is not a valid JSON.
+  // In both cases, I'm reporting it as a failure
   try {
     let url = robo_main;
     https.get(url, res => {
@@ -57,29 +65,38 @@ app.post('/api/robots/closest', (req, result) =>  {
             rawData += chunk;
         })
         res.on('end', () => {
-            const robots = JSON.parse(rawData);
-            let distances = getDistances(robots, load);
-            result.send(`Robots: ${JSON.stringify(distances)}`);
+            try {
+                const robots = JSON.parse(rawData);
+                let distances = getDistances(robots, load);
+                result.send(`${JSON.stringify(distances)}`);
+            } catch {
+                try {
+                    let url = robo_mirr;
+                    https.get(url, res => {
+                        let rawData = '';
+                        res.on('data', chunk => {
+                            rawData += chunk;
+                        })
+                        res.on('end', () => {
+                            try {
+                                const robots = JSON.parse(rawData);
+                                let distances = getDistances(robots, load);
+                                result.send(`${JSON.stringify(distances)}`);
+                            } catch {
+                                result.send('both endpoints failed');
+                            }
+                        });
+                    });
+                } catch {
+                    result.send('both endpoints failed');
+                }
+            }
         });
     });
   } catch {
-    try {
-        let url = robo_mirr;
-        https.get(url, res => {
-            let rawData = '';
-            res.on('data', chunk => {
-                rawData += chunk;
-            })
-            res.on('end', () => {
-                const robots = JSON.parse(rawData);
-                let distances = getDistances(robots, load);
-                result.send(`Robots: ${JSON.stringify(distances)}`);
-            });
-        });
-    } catch {
-        result.send('both endpoints failed');
-    }
+    result.send('both endpoints failed');
   }
+
 })
 
 function getDistances(robots, load) {
@@ -100,23 +117,23 @@ function getDistances(robots, load) {
     } else if (!underTen && d.distanceToGoal > 10.0 && d.batteryLevel > 0) {
         d.distanceToGoal = Math.round((d.distanceToGoal +  Number.EPSILON) * 100) / 100;
         res.push(d);
-        return res;
+        return;
     }
   })
   if (!underTen && res.length > 0) {
     return res[0];
   }
-    if (res.length > 0) {
-        var maxBattery = res.reduce(
-            (a, b) => {
-                return a.batteryLevel > b.batteryLevel ? a : b;
-            }
-        );
-        maxBattery.distanceToGoal = Math.round((maxBattery.distanceToGoal + Number.EPSILON) * 100) / 100;
-        res.push(maxBattery);
-        return maxBattery;
-    }
-res.push({ "robotId": null, "distanceToGoal": null, "batteryLevel": null, "errorMessage": "all robots are out of battery"});
+  if (res.length > 0) {
+      var maxBattery = res.reduce(
+          (a, b) => {
+              return a.batteryLevel > b.batteryLevel ? a : b;
+          }
+      );
+      maxBattery.distanceToGoal = Math.round((maxBattery.distanceToGoal + Number.EPSILON) * 100) / 100;
+      res.push(maxBattery);
+      return maxBattery;
+  }
+  res.push({ "robotId": null, "distanceToGoal": null, "batteryLevel": null, "errorMessage": "all robots are out of battery"});
   return res[0];
 }
 
@@ -130,7 +147,7 @@ function getRobots(result) {
         })
         res.on('end', () => {
             const robots = JSON.parse(rawData);
-            result.send(`Robots: ${JSON.stringify(robots)}`);
+            result.send(`${JSON.stringify(robots)}`);
         });
     });
   } catch {
@@ -143,34 +160,13 @@ function getRobots(result) {
             })
             res.on('end', () => {
                 const robots = JSON.parse(rawData);
-                result.send(`Robots: ${JSON.stringify(robots)}`);
+                result.send(`${JSON.stringify(robots)}`);
             });
         });
     } catch {
         result.send('both endpoints failed');
     }
   }
-}
-
-function getRequest(url) {
-    let result;
-    console.log(`getRequest url: ${url}`);
-    https.get(url, res => {
-        let rawData = '';
-        res.on('data', chunk => {
-            rawData += chunk;
-        })
-        res.on('end', () => {
-            const parsedData = JSON.parse(rawData);
-            console.log(`getRequest.res.on url: ${url}`);
-            result = parsedData;
-            console.log(`getRequest.res.on.result: ${JSON.stringify(parsedData)}`);
-            return parsedData;
-        });
-        console.log(`tmp result: ${JSON.stringify(result)}`);
-    });
-    console.log(`getRequest.result: ${JSON.stringify(result)}`);
-    return result;
 }
 
 class Load {
@@ -188,9 +184,3 @@ class Robot {
         this.batteryLevel = batteryLevel;
     }
 }
-// function getFile(idx: number) : String {
-//   const file = fs.readFileSync('robots.json','utf8');
-//   const obj = JSON.parse(file);
-//   console.log(obj[0]);
-//   return obj[idx];
-// }
