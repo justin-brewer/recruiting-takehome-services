@@ -2,3 +2,4 @@ TODO.txt
 package-lock.json
 zold/
 node_modules
+.vscode

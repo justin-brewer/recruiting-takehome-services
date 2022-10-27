@@ -1,31 +1,160 @@
 const fs = require('fs');
 const express = require('express');
 const https = require('https')
-const http = require('http')
+const http = require('http');
+const { resourceLimits } = require('worker_threads');
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-const key_file = './certs/robot-api-key.pem';
-const cert_file = './certs/robot-api-cert.pem';
 const robo_main = 'https://60c8ed887dafc90017ffbd56.mockapi.io/robots';
 const robo_mirr = 'https://svtrobotics.free.beeceptor.com/robots';
 var loadHistory = [];
 const options = {
-  key: fs.readFileSync(key_file),
-  cert: fs.readFileSync(cert_file)
 };
 
 http.createServer(app).listen(5000)
 https.createServer(options, app).listen(5001)
 
-app.get('/', (req, res) => {
-    res.send(`Get request!\n${JSON.stringify(req.body)}\n${JSON.stringify(loadHistory)}`);
+app.get('/api/robots/closest', (req, result) => {
+  try {
+    let url = robo_main;
+    https.get(url, res => {
+        let rawData = '';
+        res.on('data', chunk => {
+            rawData += chunk;
+        })
+        res.on('end', () => {
+            const robots = JSON.parse(rawData);
+            result.send(`Robots: ${JSON.stringify(robots)}`);
+        });
+    });
+  } catch {
+    try {
+        let url = robo_mirr;
+        https.get(url, res => {
+            let rawData = '';
+            res.on('data', chunk => {
+                rawData += chunk;
+            })
+            res.on('end', () => {
+                const robots = JSON.parse(rawData);
+                result.send(`Robots: ${JSON.stringify(robots)}`);
+            });
+        });
+    } catch {
+        result.send('both endpoints failed');
+    }
+  }
 })
 
-app.post('/api/robots/closest', (req, res) =>  {
+app.post('/api/robots/closest', (req, result) =>  {
   let load = new Load(req.body.loadId, req.body.x, req.body.y);
-  let robots;
-  let url = robo_main;
+  try {
+    let url = robo_main;
+    https.get(url, res => {
+        let rawData = '';
+        res.on('data', chunk => {
+            rawData += chunk;
+        })
+        res.on('end', () => {
+            const robots = JSON.parse(rawData);
+            let distances = getDistances(robots, load);
+            result.send(`Robots: ${JSON.stringify(distances)}`);
+        });
+    });
+  } catch {
+    try {
+        let url = robo_mirr;
+        https.get(url, res => {
+            let rawData = '';
+            res.on('data', chunk => {
+                rawData += chunk;
+            })
+            res.on('end', () => {
+                const robots = JSON.parse(rawData);
+                let distances = getDistances(robots, load);
+                result.send(`Robots: ${JSON.stringify(distances)}`);
+            });
+        });
+    } catch {
+        result.send('both endpoints failed');
+    }
+  }
+})
+
+function getDistances(robots, load) {
+  let distances = [];
+  robots.forEach((val, index) => {
+      const dist = Math.sqrt(
+          Math.pow((load.x-val.x),2) + Math.pow((load.y-val.y), 2));
+      distances.push({"robotId": val.robotId, "distanceToGoal": dist, "batteryLevel": val.batteryLevel});
+  });
+
+  let res = [];
+  let underTen = false;
+  distances.sort((a, b) => a.distanceToGoal - b.distanceToGoal);
+  distances.forEach((d, index) => {
+    if (d.distanceToGoal <= 10.0 && d.batteryLevel > 0) {
+        res.push(d);
+        underTen = true;
+    } else if (!underTen && d.distanceToGoal > 10.0 && d.batteryLevel > 0) {
+        d.distanceToGoal = Math.round((d.distanceToGoal +  Number.EPSILON) * 100) / 100;
+        res.push(d);
+        return res;
+    }
+  })
+  if (!underTen && res.length > 0) {
+    return res[0];
+  }
+    if (res.length > 0) {
+        var maxBattery = res.reduce(
+            (a, b) => {
+                return a.batteryLevel > b.batteryLevel ? a : b;
+            }
+        );
+        maxBattery.distanceToGoal = Math.round((maxBattery.distanceToGoal + Number.EPSILON) * 100) / 100;
+        res.push(maxBattery);
+        return maxBattery;
+    }
+res.push({ "robotId": null, "distanceToGoal": null, "batteryLevel": null, "errorMessage": "all robots are out of battery"});
+  return res[0];
+}
+
+function getRobots(result) {
+  try {
+    let url = robo_main;
+    https.get(url, res => {
+        let rawData = '';
+        res.on('data', chunk => {
+            rawData += chunk;
+        })
+        res.on('end', () => {
+            const robots = JSON.parse(rawData);
+            result.send(`Robots: ${JSON.stringify(robots)}`);
+        });
+    });
+  } catch {
+    try {
+        let url = robo_mirr;
+        https.get(url, res => {
+            let rawData = '';
+            res.on('data', chunk => {
+                rawData += chunk;
+            })
+            res.on('end', () => {
+                const robots = JSON.parse(rawData);
+                result.send(`Robots: ${JSON.stringify(robots)}`);
+            });
+        });
+    } catch {
+        result.send('both endpoints failed');
+    }
+  }
+}
+
+function getRequest(url) {
+    let result;
+    console.log(`getRequest url: ${url}`);
     https.get(url, res => {
         let rawData = '';
         res.on('data', chunk => {
@@ -34,65 +163,11 @@ app.post('/api/robots/closest', (req, res) =>  {
         res.on('end', () => {
             const parsedData = JSON.parse(rawData);
             console.log(`getRequest.res.on url: ${url}`);
-            robots = parsedData;
-//            console.log(`getRequest.res.on.result: ${JSON.stringify(result)}`);
-        });
-    });
-//  const robots = getRobots();
-//  console.log(`robots: ${JSON.stringify(robots)}`);
-  let result = [];
-  robots.forEach((val, index) => {
-      const dist = Math.sqrt(
-          Math.pow((load.x-val.x),2) + Math.pow((load.y-val.y), 2));
-      console.log(`robotId: ${val.robotId}`);
-      console.log(`distanceToGoal: ${dist}`);
-      console.log(`batteryLevel: ${val.batteryLevel}`);
-      result.push({"robotId": val.robotId, "distanceToGoal": dist, "batteryLevel": val.batteryLevel});
-
-  });
-//  console.log(`loadId: ${req.body.loadId}`);
-//  console.log(`x: ${req.body.x}`);
-//  console.log(`y: ${req.body.y}`);
-//  console.log();
-  loadHistory.push(load);
-  console.log(`result: ${result}`);
-  res.send(`posted: ${JSON.stringify(result)}`);
-})
-
-async function getRobots() {
-    let result;
-    try {
-        result = await getRequest(robo_main);
-        console.log(`getRobots try: ${JSON.stringify(result)}`);
-    } catch (err) {
-        console.log('main endpoint failed, trying mirror...');
-        try {
-            result = await getRequest(robo_mirr);
-            console.log(`getRobots try.try: ${JSON.stringify(result)}`);
-        } catch (err) {
-            result = {"error_message": "both endpoints broken"};
-            console.log(`getRobots catch.catch: ${JSON.stringify(result)}`);
-        }
-    } finally {
-        console.log(`getRobots finally: ${JSON.stringify(result)}`);
-        return result;
-    }
-}
-
-async function getRequest(url) {
-    let result;
-    console.log(`getRequest url: ${url}`);
-    await https.get(url, async res => {
-        let rawData = '';
-        res.on('data', chunk => {
-            rawData += chunk;
-        })
-        await res.on('end', async () => {
-            const parsedData = JSON.parse(rawData);
-            console.log(`getRequest.res.on url: ${url}`);
             result = parsedData;
-            console.log(`getRequest.res.on.result: ${JSON.stringify(result)}`);
+            console.log(`getRequest.res.on.result: ${JSON.stringify(parsedData)}`);
+            return parsedData;
         });
+        console.log(`tmp result: ${JSON.stringify(result)}`);
     });
     console.log(`getRequest.result: ${JSON.stringify(result)}`);
     return result;
