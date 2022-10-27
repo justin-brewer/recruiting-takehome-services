@@ -1,5 +1,5 @@
 # SVT Robotics - .NET Core Take Home Recruiting Assessment
-## \*See bottom for instructions to run.
+## \*See bottom for [Prerequisites](#prerequisites) and [How to Run](#how-to-run).
 
 One of SVT's microservices calculates which robot should transport a pallet from point A to point B based on which robot is the closest and has the most battery left if there are multiple in the proximity of the load's location. You'll use a provided API endpoint to create a simplified robot routing API.
 
